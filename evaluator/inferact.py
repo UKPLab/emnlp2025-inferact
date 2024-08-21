@@ -6,6 +6,8 @@ from prompts.hotpotqa_prompt import hotpot_k_task_inference, hotpot_task_validat
 from prompts.alfworld_prompt import alfworld_k_task_inference, alfworld_task_validator, alfworld_task_validator_risk_sen
 import re
 import ipdb
+import numpy as np
+from torch.nn.functional import softmax
 
 class InferAct(BaseEvaluator):
     def __init__(self, task, **kwargs) -> None:
@@ -40,12 +42,11 @@ class InferAct(BaseEvaluator):
         return inferred_tasks_dic, reason
     
 
-    def task_validator(self, validator_prompt, chain_action, tasks_string, task_string_reverse, gold_label, inferred_tasks_reason, tasks):
-
+    def task_validator_verbalized_prob(self, validator_prompt, chain_action, tasks_string, task_string_reverse, gold_label, inferred_tasks_reason, tasks):
+        
         task_validator = validator_prompt.format(
             action=chain_action, instructions=tasks_string, num=len(tasks)
         )
-
         task_validator_revserse = validator_prompt.format(
             action=chain_action, instructions=task_string_reverse, num=len(tasks)
         )
@@ -105,11 +106,59 @@ class InferAct(BaseEvaluator):
                 "aggregated_probs": "N/A"}
         return result
 
+    def task_validator_logtis(self, validator_prompt, chain_action, tasks_string, task_string_reverse, gold_label, inferred_tasks_reason, tasks):
+        
+        task_validator = validator_prompt.format(
+            action=chain_action, instructions=tasks_string, num=len(tasks)
+        )
+        task_validator_revserse = validator_prompt.format(
+            action=chain_action, instructions=task_string_reverse, num=len(tasks)
+        )
+
+        # maybe order senstitive: swap the instrction1 and instruction2
+        result, logits = self.base_model([HumanMessage(content=task_validator)], probs=True)
+
+        result_reverse, logits_reverse = self.base_model(
+            [HumanMessage(content=task_validator_revserse)], probs=True
+        )
+
+        # get the probability of all options from the token_logits and do softmax
+        indices = [self.tokenizer.convert_tokens_to_ids(option) for option in ['Yes', 'No']]
+
+        # get softmax
+        option_probs = softmax(logits[indices])
+
+        # get the prob of gold label
+        option2ix = {option: ix for ix, option in enumerate(self.reverse_mapping.keys())}
+        gold_label_prob = option_probs[option2ix[gold_label]]
+
+        #reverse
+        option_probs_reverse = softmax(logits_reverse[indices])
+        gold_label_prob_reverse = option_probs_reverse[option2ix[self.reverse_mapping[gold_label]]]
+            
+        ## aggerate the probability: multiply or average?
+        aggregated_probs = gold_label_prob * gold_label_prob_reverse
+
+        result ={
+                "inferred_tasks_reason": inferred_tasks_reason,
+                "tasks_string": tasks_string,
+                "task_string_reverse": task_string_reverse,
+                "gold_option": gold_label,
+                "aggregated_probs": aggregated_probs
+            }  
+        return result
+
+    def task_validator(self, prob_estimation,  chain_action, tasks_string, task_string_reverse, gold_label, inferred_tasks_reason, tasks):
+        if prob_estimation == 'verbalized_prob':
+            result = self.task_validator_verbalized_prob(self.prompts[self.task]['verbalized_prob'], chain_action, tasks_string, task_string_reverse, gold_label, inferred_tasks_reason, tasks)
+        elif prob_estimation == 'logtis':
+            result = self.task_validator_logtis(self.prompts[self.task]['logtis'], chain_action, tasks_string, task_string_reverse, gold_label, inferred_tasks_reason, tasks)
+        return result
+
     def aggregate_probability(self, probs, probs_reverse):
         
         option2prob = {option[0]: option[1] for option in probs}
         for reversed_option in probs_reverse:
-            # order = self.label_map[len(probs) + 1 - self.alp2ix[reversed_option[0]]]
             order = self.reverse_mapping[reversed_option[0]]
             option2prob[order] = (option2prob.get(order, 0) + reversed_option[1]) / 2
 
@@ -119,7 +168,6 @@ class InferAct(BaseEvaluator):
 
 
     def evaluate(self, message, **kwargs):
-
 
         if self.task.lower() == "webshop":
             action_chain, original_task = get_action_chain_webshop(message)

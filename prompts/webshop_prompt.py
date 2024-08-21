@@ -21,6 +21,13 @@ Remember, Only evaluate if criteria that are explicitly mentioned in the instruc
 The trajectory performed by Actor is {action}.
 The candidate user's instructions are {instructions}."""
 
+web_task_validator_binary = """You are a powerful judge of agent-based web shopping. An agent, Actor, is helping the user to shop online.
+The trajectory performed by Actor is {action}.
+The candidate user's instructions are {instructions}.
+Given the above candidates, do you think the candidate {gold_instruction} is the correct instruction that the Actor is trying to fulfill? Please directly answer 'Yes' or 'No'."""
+
+
+
 web_task_validator_risk_sen = """You are a powerful judge of agent-based web shopping. An agent, Actor, is helping the user to shop online.
 I will give you the trajectory performed by Actor and a set of candidate user's instructions. You need to select your top {num} guesses and assign a probability (ranging from 0.0 to 1.0) to each, indicating the likelihood that the candidate instruction is fulfilled by the Actor's trajectory.
 Pay special attention to the prices of the products involved. Mistakes in higher-priced products can lead to significant financial loss for the user. Therefore, when the price is higher than $60, your assessment must be especially stringent and risk-aware.
@@ -122,4 +129,7 @@ ws_binary_feedback_prompt = """You will be given the history of a past experienc
 
 
 Instruction: {scenario}"""
+
+
+
 
