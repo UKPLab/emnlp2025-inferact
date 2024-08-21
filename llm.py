@@ -7,6 +7,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
 import ipdb
 import torch
 from langchain.memory import ChatMessageHistory
+import numpy as np
 # from vllm import LLM, SamplingParams
 
 
@@ -15,19 +16,19 @@ class AnyOpenAILLM:
         self.model_name = kwargs.get("model_name", "gpt4-turbo")
         if self.model_name == "gpt4-turbo":
             deployment = "gpt4-turbo-128k"
-            os.environ["AZURE_OPENAI_API_KEY"] = "API Key"
+            os.environ["AZURE_OPENAI_API_KEY"] = "ab5b2e173543465482fbd9e18afe68c8"
             os.environ["AZURE_OPENAI_ENDPOINT"] = (
-                "ENDPOINT"
+                "https://azure-openai-ukp-west-us.openai.azure.com/"
             )
         elif self.model_name == "gpt35-turbo":
             deployment = 'gpt-35-turbo-0613-16k'
-            os.environ["AZURE_OPENAI_API_KEY"] = "API Key"
+            os.environ["AZURE_OPENAI_API_KEY"] = "5cd29c78a1184872a559f8284d13a863"
             os.environ["AZURE_OPENAI_ENDPOINT"] = (
-                "ENDPOINT"
+                "https://azure-openai-ukp-005.openai.azure.com/"
             )
 
         self.model = AzureChatOpenAI(
-            openai_api_version="2023-05-15", azure_deployment=deployment, **kwargs['model_kwargs']
+            openai_api_version="2023-05-15", azure_deployment=deployment, **kwargs['model_kwargs'], logprobs=1
         )
         self.prompt_tokens = 0
         self.completion_tokens = 0
@@ -69,7 +70,7 @@ class LocalLLM:
         self.model.config.eos_token_id = 2
         self.temperature = temperature
 
-    def __call__(self, chat_history):
+    def __call__(self, chat_history, probs=False):
         terminators = [self.tokenizer.eos_token_id]
         if "llama-3" in self.model_pth:
             terminators += [self.tokenizer.convert_tokens_to_ids("<|eot_id|>")]
@@ -102,5 +103,21 @@ class LocalLLM:
                 output_scores=False,
                 return_dict_in_generate=True,
             )
-        decoded = self.tokenizer.batch_decode(generation_output.sequences[:, input_ids.shape[1]:], skip_special_tokens=True)
-        return decoded[0].strip()
+
+        # transition_scores = self.model.compute_transition_scores(
+        #     generation_output.sequences, generation_output.scores, normalize_logits=True
+        # )
+        input_length = input_ids.shape[1]
+        generated_ids = generation_output.sequences[:, input_length:]
+
+        token_probs = {}
+        if probs:
+            logits = generation_output.scores[:, -1, :]
+            # for tok, score in zip(generated_ids[0], transition_scores[0]):
+            #     token_probs[self.tokenizer.decode(tok)] = np.exp(score.item())
+
+        decoded = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
+        if probs:
+            return decoded[0].strip(), logits
+        else:
+            return decoded[0].strip()
