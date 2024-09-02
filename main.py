@@ -4,7 +4,8 @@ import os
 import json
 from evaluator.utils_eval import convert_json_objs
 from tqdm import tqdm
-from sklearn.metrics import precision_recall_curve, auc
+from sklearn.metrics import precision_recall_curve, auc, roc_auc_score
+from netcal.metrics import ECE
 import numpy as np
 from feedback_generator import FeedbackGenerator
 from actor.alfworld.alfworld_trial import run_alfworld
@@ -16,6 +17,7 @@ from actor.webshop.webshop_trial import run_webshop
 import sys
 from actor.hotpotqa.agents import ReactAgent
 import logging
+import ipdb
 
 logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(filename)s - %(levelname)s - %(message)s', datefmt='%m-%d %H:%M:%S')
 
@@ -82,7 +84,7 @@ def run_alfworld_webshop(args, feedback_dir):
 
 def run_hotpotqa(args, feedback_dir, actor_flies_dir):
     with open("./outputs/actor-traj/hotpotqa/data.json", "r") as f:
-        data = json.load(f)[:2]
+        data = json.load(f)
     env2data = {row['env_name']: row for row in data}
 
     if not os.path.exists(actor_flies_dir):
@@ -185,15 +187,22 @@ def cal_metrics(eval_result_file, kwargs, evaluator):
     recall = true_positive / (true_positive + false_negative + epsilon)
     precision = true_positive / (true_positive + false_positive + epsilon)
     f1 = 2 * recall * precision / (recall + precision + 1e-7)
-    if y_pred:
+    if y_pred and any(y_pred):
         precisions, recalls, thresholds = precision_recall_curve(y_true, y_pred)
         auc_pr = auc(recalls, precisions)
+        ece = ECE(10)
+        print(y_pred, y_true)
+        ece_score = ece.measure(np.array(y_pred), np.array(y_true))
+        auc_roc = roc_auc_score(y_true, y_pred)
         precisions = precisions.tolist()
         recalls = recalls.tolist()
         thresholds = thresholds.tolist()
+   
     else:
         precisions, recalls, thresholds = [], [], []
-        auc_pr = 0
+        auc_pr = -1
+        ece_score = -1
+        auc_roc = -1
         
     accuracy = (true_positive + true_negative) / (true_positive + true_negative + false_positive + false_negative)
 
@@ -201,6 +210,8 @@ def cal_metrics(eval_result_file, kwargs, evaluator):
             "precision": precision,
             "f1": f1,
             "auc_pr": auc_pr,
+            "ece": ece_score,
+            "auc_roc": auc_roc,
             'precision_list': precisions,
             'recall_list': recalls,
             "thresholds_list": thresholds,
@@ -223,7 +234,7 @@ def run_metrics(args, evaluator, eval_dir):
         os.makedirs(eval_metric_dir)
     eval_result_file = os.path.join(eval_dir, "eval_results", f"{args.feedback_type}.txt" if args.trial_num > 0 else "init.txt")
     
-    kwargs = {'threshold': args.threshold, 'task': args.task}
+    kwargs = {'threshold': args.threshold, 'task': args.task, 'prob_estimation': args.prob_estimation}
     if args.eval_method == "multi_step":
         result = {}
         tp_tasks = {}
@@ -264,6 +275,7 @@ if __name__ == "__main__":
     parser.add_argument("--signature", type=str, default="")
     parser.add_argument("--threshold", type=str, default="")
     parser.add_argument("--traj_dir", type=str, default="./outputs/actor-traj")
+    parser.add_argument("--prob_estimation", type=str, default="logits_multiclass")
     ## args for Alfworld
     parser.add_argument("--num_envs", type=int, help="The number of environments per trial in Alfworld or webshop")
     parser.add_argument("--use_memory", action='store_true', help="Allow the Agent to use memory")
@@ -276,7 +288,7 @@ if __name__ == "__main__":
 
     assert args.eval_method in ["standard", "multi_step", "standard_sc", "inferact"], "eval_method should be one of standard, multi_step, standard_sc, inferact"
 
-    kwargs = {"model_path": args.model_path, "model_name": args.model_name, "risk_mode": args.risk_mode}
+    kwargs = {"model_path": args.model_path, "model_name": args.model_name, "risk_mode": args.risk_mode, "prob_estimation": args.prob_estimation}
 
     if args.eval_method == "self_consistency":
         kwargs["temperature"] = 0.7
@@ -284,18 +296,11 @@ if __name__ == "__main__":
     evaluators = {"standard": StandardEvaluator, "multi_step": MultistepEvaluator, "standard_sc": StandardEvaluatorSC, "inferact": InferAct}
     evaluator = evaluators[args.eval_method](args.task, **kwargs)
 
-    if args.model_name == "gpt4-turbo":
-        save_dir = args.save_dir + "/gpt4-turbo"
-
-    elif args.model_name == "gpt35-turbo":
-        save_dir = args.save_dir + "/gpt35-turbo"
-
-    elif args.model_name == 'llama-3-70B':
-        save_dir = args.save_dir + "/llama-3-70B"
+    save_dir = f"{args.save_dir}/{args.model_name}"
 
 
     ## All paths
-    eval_dir = os.path.join(save_dir, args.task, args.eval_method, args.signature, f"retrial_{args.trial_num}" if not args.risk_mode else f"retrial_{args.trial_num}_sensitive")
+    eval_dir = os.path.join(save_dir, args.task, args.eval_method, args.prob_estimation, args.signature, f"retrial_{args.trial_num}" if not args.risk_mode else f"retrial_{args.trial_num}_sensitive")
     actor_flies_dir = (
         f"{args.traj_dir}/{args.task}/retrial_{args.trial_num}/{args.feedback_type if args.trial_num > 0 else ''}"
     )
@@ -334,9 +339,6 @@ if __name__ == "__main__":
     else:
         last_rejected_files = os.listdir(actor_flies_dir)
         last_rejected_files = sorted(last_rejected_files)
-
-
-
 
     if args.do_eval:
         logging.info(f"-----Running evaluation for {args.task}------")

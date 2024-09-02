@@ -21,12 +21,101 @@ Remember, Only evaluate if criteria that are explicitly mentioned in the instruc
 The trajectory performed by Actor is {action}.
 The candidate user's instructions are {instructions}."""
 
-web_task_validator_binary = """You are a powerful judge of agent-based web shopping. An agent, Actor, is helping the user to shop online.
+web_task_validator = """You are a powerful judge of agent-based web shopping. An agent, Actor, is helping the user to shop online.
+I will give you the trajectory performed by Actor and a set of candidate user's instructions. You need to select your top {num} guesses and carefully assign a probability (ranging from 0.0 to 1.0) to each, indicating the likelihood that the candidate instruction is fulfilled by the Actor's trajectory.
+Your response MUST follow the format:
+G1: <Only output the option label of the instruction that you think is correct. No other words or explanation> P1: <the probability of the instruction being correct> ... G_i: <Only output the option label of the instruction that you think is correct. No other words or explanation> P_i: <the probability of the instruction being correct>
+Justification: <A brief justification for your response>.
+Remember, Only evaluate if criteria that are explicitly mentioned in the instruction are met or not. If some features of selected products are not specified in the instruction, you should not consider them in your judgement.
+
 The trajectory performed by Actor is {action}.
+The candidate user's instructions are {instructions}."""
+
+web_task_validator_desc_term = """You are a powerful judge of agent-based web shopping. An agent, Actor, is helping the user to shop online.
+I will give you the trajectory performed by Actor and a set of candidate user's instructions. You need to select your top {num} guesses and carefully assign a likelihood level to each, indicating the likelihood that the candidate instruction is fulfilled by the Actor's trajectory.
+Your response MUST follow the format:
+G1: <Only output the option label of the instruction that you think is correct. No other words or explanation> P1: <the likelihood level of the instruction being correct> ... G_i: <Only output the option label of the instruction that you think is correct. No other words or explanation> P_i: <the likelihood level of the instruction being correct>
+Justification: <A brief justification for your response>.
+Remember, Only evaluate if criteria that are explicitly mentioned in the instruction are met or not. If some features of selected products are not specified in the instruction, you should not consider them in your judgement.
+
+The likelihood levels are:
+- Very Likely
+- Likely
+- Possible
+- Unlikely
+- Very Unlikely
+
+The trajectory performed by Actor is {action}.
+The candidate user's instructions are {instructions}"""
+
+web_task_validator_desc_term_logits = """You are a powerful judge of agent-based web shopping. An agent, Actor, is helping the user to shop online.
+I will give you the trajectory performed by Actor and a set of candidate user's instructions. You need to select your top {num} guesses and carefully assign a likelihood level to each, indicating how likely it is that the candidate instruction is fulfilled by the Actor's trajectory.
+
+The likelihood levels are:
+a. Very Unlikely
+b. Unlikely
+c. Possible
+d. Likely
+e. Very Likely
+
+Your response MUST follow the format:
+G1: <Only output the option label of the instruction that you think is correct. No other words or explanation> P1: <the likelihood level (e.g. a) of the instruction being correct>\n...\nG_i: <Only output the option label of the instruction that you think is correct. No other words or explanation> P_i: <the likelihood level (e.g. a) of the instruction being correct>
+Justification: <A brief justification for your response>.
+Remember, Only evaluate if criteria that are explicitly mentioned in the instruction are met or not. If some features of selected products are not specified in the instruction, you should not consider them in your judgement.
+
+The trajectory performed by Actor is {action}.
+The candidate user's instructions are {instructions}"""
+
+# - Certain
+# - Likely
+# - Possible
+# - Unlikely
+# - Improbable
+# web_task_validator_desc_term_logits = """You are a powerful judge of agent-based web shopping. An agent, Actor, is helping the user to shop online.
+# I will give you the trajectory performed by Actor and a set of candidate user's instructions. You need to select your top {num} guesses and carefully assign a likelihood level to each, indicating the likelihood that the candidate instruction is fulfilled by the Actor's trajectory.
+
+# The likelihood levels are:
+# a. Very Unlikely
+# b. Unlikely
+# c. Possible
+# d. Likely
+# e. Very Likely
+
+# Your response MUST follow the format:
+# G1: <Only output the option label of the instruction that you think is correct. No other words or explanation> P1: <The likelihood level (e.g. a) of the instruction being correct>\n...\nG_i: <Only output the option of the instruction that you think is correct. No other words or explanation> P_i: <The likelihood level of the instruction being correct>\nJustification: <A brief justification for your guesses>.
+
+# Remember, Only evaluate if criteria that are explicitly mentioned in the instruction are met or not. If some features of selected products are not specified in the instruction, you should not consider them in your judgement.
+# The trajectory performed by Actor is {action}.
+# The candidate user's instructions are {instructions}"""
+
+
+
+
+web_task_validator_multilabel = """You are a powerful judge of agent-based web shopping. An agent, Actor, is helping the user to shop online.
+I will give you the trajectory performed by Actor and a set of candidate user's instructions. You need to identify whether each candidate instruction is fulfilled by the Actor's trajectory.
+Your response MUST follow the format:
+A: <Yes/No> B: <Yes/No> ... Z: <Yes/No>.
+
+The trajectory performed by Actor is {action}.
+The candidate user's instructions are {instructions}."""
+
+web_task_validator_true_false = """You are a powerful judge of agent-based web shopping. An agent, "Actor", is helping the user to shop online.
+
+The trajectory performed by Actor is {action}.
+Here are some possible user's instructions that the Actor might have fulfilled:
+{instructions}.
+The selected instruction is: {gold_instruction}
+Is the selected instruction correctly fullfilled by the Actor's trajectory?
+A. Yes
+B. No
+Please directly output A or B as your answer without any additional words or explanation."""
+
+
+web_task_validator_multiclass = """You are a powerful judge of agent-based web shopping. An agent, Actor, is helping the user to shop online.
+The trajecotry performed by Actor is {action}.
 The candidate user's instructions are {instructions}.
-Given the above candidates, do you think the candidate {gold_instruction} is the correct instruction that the Actor is trying to fulfill? Please directly answer 'Yes' or 'No'."""
-
-
+Given the above candidates, which instruction do you think the Actor is trying to fulfill? You response MUST follow the format:
+The correct instruction is: <A/B/C/D/E>."""
 
 web_task_validator_risk_sen = """You are a powerful judge of agent-based web shopping. An agent, Actor, is helping the user to shop online.
 I will give you the trajectory performed by Actor and a set of candidate user's instructions. You need to select your top {num} guesses and assign a probability (ranging from 0.0 to 1.0) to each, indicating the likelihood that the candidate instruction is fulfilled by the Actor's trajectory.
