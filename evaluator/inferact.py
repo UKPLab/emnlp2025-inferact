@@ -1,15 +1,15 @@
 from .base_evaluator import BaseEvaluator
-from .utils_eval import get_action_chain_webshop, get_action_chain_hotpotqa, get_action_chain_alfworld,extract_price, get_risk_level
+from .utils_eval import get_action_chain_webshop, get_action_chain_hotpotqa, get_action_chain_alfworld,extract_price, get_risk_level, get_action_chain_rjudge
 from langchain.schema import HumanMessage
 from prompts.webshop_prompt import web_k_task_inference, web_task_validator, web_task_validator_risk_sen, web_task_validator_multilabel, web_task_validator_multiclass, web_task_validator_true_false, web_task_validator_desc_term, web_task_validator_desc_term_logits
 from prompts.hotpotqa_prompt import hotpot_k_task_inference, hotpot_task_validator
 from prompts.alfworld_prompt import alfworld_k_task_inference, alfworld_task_validator, alfworld_task_validator_risk_sen
+from prompts.rjudge_prompt import rjudge_k_inference, rjudge_task_validator
 import re
 import ipdb
 from torch.nn.functional import softmax
 import numpy as np
 import torch
-import json
 
 class InferAct(BaseEvaluator):
     def __init__(self, task, **kwargs) -> None:
@@ -30,6 +30,9 @@ class InferAct(BaseEvaluator):
             "alfworld": {
                 "verbalized_prob": alfworld_task_validator,
                 "logits": alfworld_task_validator
+            },
+            "rjudge": {
+                "verbalized_prob": rjudge_task_validator
             }
         }
         # self.likelihood2num = {'Very Likely': 5, 'Likely': 4, 'Possible': 3, 'Unlikely': 2, 'Very Unlikely': 1}
@@ -46,7 +49,7 @@ class InferAct(BaseEvaluator):
             split_phrase = f"The {num_tasks} most likely user's instructions are:"
         elif self.task == "hotpotqa":
             split_phrase = f"The {num_tasks} most likely questions are:"
-        elif self.task == "alfworld":
+        elif self.task in ["alfworld", "rjudge"]:
             split_phrase = f"The {num_tasks} most likely tasks are:"
 
         inferred_tasks = self.base_model([HumanMessage(content=task_inference_prompt)])
@@ -221,45 +224,45 @@ class InferAct(BaseEvaluator):
         )
 
         try:
-            if prob_estimation in ['logits_multilabel', 'logitis_likelihood']:
-                # get the probability of all options from the token_logits and do softmax
-                # A: Yes B: No ... each token has a list of logits. dict option: logits
-                if prob_estimation == 'logits_multilabel':
-                    classification_type = [' Yes', ' No']
-                else:
-                    classification_type = [' L1', ' L2', ' L3', ' L4', ' L5']
-                gold_option_logits = self.multi_label_logits(token_logits, tokens, gold_label, classification_type)
-                gold_option_logits_reverse = self.multi_label_logits(token_logits_reverse, tokens_reverse, self.reverse_mapping[gold_label], classification_type)
-                # get softmax
+            # if prob_estimation in ['logits_multilabel', 'logitis_likelihood']:
+            #     # get the probability of all options from the token_logits and do softmax
+            #     # A: Yes B: No ... each token has a list of logits. dict option: logits
+            #     if prob_estimation == 'logits_multilabel':
+            #         classification_type = [' Yes', ' No']
+            #     else:
+            #         classification_type = [' L1', ' L2', ' L3', ' L4', ' L5']
+            #     gold_option_logits = self.multi_label_logits(token_logits, tokens, gold_label, classification_type)
+            #     gold_option_logits_reverse = self.multi_label_logits(token_logits_reverse, tokens_reverse, self.reverse_mapping[gold_label], classification_type)
+            #     # get softmax
                 
-                gold_option_probs = softmax(torch.Tensor(list(gold_option_logits.values())))
+            #     gold_option_probs = softmax(torch.Tensor(list(gold_option_logits.values())))
 
-                # #reverse
-                # logits_reverse = token_logits_reverse['Yes'] if 'Yes' in token_logits_reverse else token_logits_reverse['No']
-                gold_option_probs_reverse = softmax(torch.Tensor(list(gold_option_logits_reverse.values())))
+            #     # #reverse
+            #     # logits_reverse = token_logits_reverse['Yes'] if 'Yes' in token_logits_reverse else token_logits_reverse['No']
+            #     gold_option_probs_reverse = softmax(torch.Tensor(list(gold_option_logits_reverse.values())))
 
-                aggregated_probs = (gold_option_probs + gold_option_probs_reverse)/2
-                output = 'Yes' if np.argmax(aggregated_probs) == 0 else 'No'
+            #     aggregated_probs = (gold_option_probs + gold_option_probs_reverse)/2
+            #     output = 'Yes' if np.argmax(aggregated_probs) == 0 else 'No'
 
                 
-            elif prob_estimation == 'logits_multiclass':
-                all_options, all_options_logits = self.multi_class_logits(token_logits, tokens)
-                all_options_reverse, all_options_logits_reverse = self.multi_class_logits(token_logits_reverse, tokens_reverse)
-                all_options_probs = softmax(torch.Tensor(all_options_logits))
-                # dict
-                option2prob = dict(zip(all_options, all_options_probs))
-                print('option2prob', option2prob)
-                gold_option_probs = option2prob[f" {gold_label}"]
+            # elif prob_estimation == 'logits_multiclass':
+            #     all_options, all_options_logits = self.multi_class_logits(token_logits, tokens)
+            #     all_options_reverse, all_options_logits_reverse = self.multi_class_logits(token_logits_reverse, tokens_reverse)
+            #     all_options_probs = softmax(torch.Tensor(all_options_logits))
+            #     # dict
+            #     option2prob = dict(zip(all_options, all_options_probs))
+            #     print('option2prob', option2prob)
+            #     gold_option_probs = option2prob[f" {gold_label}"]
 
-                all_options_probs_reverse = softmax(torch.Tensor(all_options_logits_reverse))
-                option2prob_reverse = dict(zip(all_options_reverse, all_options_probs_reverse))
-                gold_option_probs_reverse = option2prob_reverse[f" {self.reverse_mapping[gold_label]}"]
-                print('option2prob_reverse', option2prob_reverse)
+            #     all_options_probs_reverse = softmax(torch.Tensor(all_options_logits_reverse))
+            #     option2prob_reverse = dict(zip(all_options_reverse, all_options_probs_reverse))
+            #     gold_option_probs_reverse = option2prob_reverse[f" {self.reverse_mapping[gold_label]}"]
+            #     print('option2prob_reverse', option2prob_reverse)
 
-                aggregated_probs = (gold_option_probs + gold_option_probs_reverse)/2
-                output = 'Yes' if aggregated_probs > 0.5 else 'No'
+            #     aggregated_probs = (gold_option_probs + gold_option_probs_reverse)/2
+            #     output = 'Yes' if aggregated_probs > 0.5 else 'No'
 
-            elif prob_estimation == 'logits_tf':
+            if prob_estimation == 'logits_tf':
                 
                 gold_option_probs = softmax(torch.Tensor([token_logits[0]["A"], token_logits[0]["B"]]))
                 gold_option_probs_reverse = softmax(torch.Tensor([token_logits_reverse[0]["A"], token_logits_reverse[0]["B"]]))
@@ -357,6 +360,10 @@ class InferAct(BaseEvaluator):
                 validator_prompt = alfworld_task_validator_risk_sen
             else:
                 validator_prompt = alfworld_task_validator
+
+        elif self.task.lower() == "rjudge":
+            action_chain, original_task = get_action_chain_rjudge(message)
+            task_inference_prompt = rjudge_k_inference
 
         if kwargs['risk_mode']:
             risk_level = get_risk_level(self.task, action_chain)
@@ -485,6 +492,7 @@ class InferAct(BaseEvaluator):
                     
                         # ipdb.set_trace()
                         pred_label = "Yes" if np.argmax(obj['real-time eval'][ix]['aggregated_probs']) == 0 else "No"
+                        # the prob you made error
                         y_pred[-1] = obj['real-time eval'][ix]['aggregated_probs'][1]
 
                         if pred_label == "Yes":
@@ -497,7 +505,8 @@ class InferAct(BaseEvaluator):
                         y_pred[-1] = 1-obj['real-time eval'][ix]['aggregated_probs']
                 
 
-            except:
+            except Exception as e:
+                print('error', e)
                 ipdb.set_trace()
 
             if obj["trace_correct"]:
