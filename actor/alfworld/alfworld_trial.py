@@ -12,7 +12,7 @@ from tqdm import tqdm
 # from utils import Model, get_chat, get_completion
 from .env_history import EnvironmentHistory
 sys.path.append(os.path.abspath('../../'))
-from llm import AnyOpenAILLM
+from llm import AnyLLM
 from typing import List, Dict, Any, Tuple
 from langchain.schema import messages_to_dict
 import ipdb
@@ -43,7 +43,7 @@ def process_ob(ob):
         ob = ob[ob.find('. ')+2:]    
     return ob
 
-def alfworld_run(env, base_prompt, memory: List[str], model: AnyOpenAILLM, to_print=True, ob='') -> Tuple[EnvironmentHistory, bool]:
+def alfworld_run(env, base_prompt, memory: List[str], model: AnyLLM, to_print=True, ob='') -> Tuple[EnvironmentHistory, bool]:
     if len(memory) > 3:
         env_history = EnvironmentHistory(base_prompt, ob, memory[-3:], [])
     else:
@@ -53,6 +53,7 @@ def alfworld_run(env, base_prompt, memory: List[str], model: AnyOpenAILLM, to_pr
         print(ob)
         sys.stdout.flush()
     cur_step = 0
+    is_halted = False
     while cur_step < 49:
         # ipdb.set_trace()
         action = llm(env_history.messages, model, stop=['\n']).strip()
@@ -70,11 +71,14 @@ def alfworld_run(env, base_prompt, memory: List[str], model: AnyOpenAILLM, to_pr
             print(f'{action}\n{observation}')
             sys.stdout.flush()
         if done:
-            return env_history, True
+            return env_history, True, is_halted
         elif env_history.check_is_exhausted():
-            return env_history, False
+            return env_history, False, True
         cur_step += 1
-    return env_history, False
+        if cur_step == 49 and "Nothing happens." in observation:
+            is_halted = True
+    
+    return env_history, False, is_halted
 
 PREFIXES = {
     'pick_and_place': 'put',
@@ -100,7 +104,7 @@ def run_alfworld(
     env = getattr(alfworld.agents.environment, config["env"]["type"])
     env = env(config, train_eval=split)
     env = env.init_env(batch_size=1)
-    model = AnyOpenAILLM(model_name=model_name, model_kwargs={"temperature": 0.0})
+    model = AnyLLM(model_name=model_name, model_kwargs={"temperature": 0.0})
 
     path = {}
     files = os.listdir(trial_log_dir)
@@ -123,11 +127,12 @@ def run_alfworld(
         for i, (k, v) in enumerate(PREFIXES.items()):
             if name.startswith(k):
                 base_prompt = 'You are interacting with a household to solve a task. After your each turn, the environment will give you immediate feedback. If the environment output "Nothing happens", that means the previous action is invalid and you should try more options. Here are two examples to help you understand the task.\n' + examples[f'react_{v}_1'] + examples[f'react_{v}_0'] + '(END OF EXAMPLES)\nYou MUST follow the format of the examples above to solve the task.\n'
-                final_env_history, is_success = alfworld_run(env, base_prompt, env_config["memory"], to_print=True, ob=ob, model=model)
+                final_env_history, is_success, is_halted = alfworld_run(env, base_prompt, env_config["memory"], to_print=True, ob=ob, model=model)
 
                 path['env_name'] = name
                 path['info'] = info
                 path['path'] = messages_to_dict(final_env_history.messages)
+                path["is_halted"] = is_halted
                 path['trace_correct'] = int(is_success)
                 # log env results to trial log
                 with open(os.path.join(trial_log_dir, f'{z}.json'), 'w') as wf:

@@ -1,4 +1,4 @@
-from llm import AnyOpenAILLM
+from llm import AnyLLM
 from prompts.webshop_prompt import ws_feedback_prompt, ws_afterwards_feedback_prompt, ws_binary_feedback_prompt
 from prompts.hotpotqa_prompt import hot_feedback_prompt, hot_afterwards_feedback_prompt, hotpot_binary_feedback_prompt
 from prompts.alfworld_prompt import alfworld_feedback_prompt, alfworld_afterwards_feedback_prompt, alfworld_binary_feedback_prompt
@@ -6,15 +6,16 @@ from langchain.schema import HumanMessage
 import argparse
 import json
 import os
-from evaluator.utils_eval import get_trajectory_webshop, get_action_chain_webshop, get_action_chain_hotpotqa, get_action_chain_alfworld, extract_price
+from evaluator.utils_eval import get_trajectory_webshop, get_action_chain_webshop, get_action_chain_hotpotqa, get_action_chain_alfworld, extract_price, load_rejected_envs, load_halted_envs
 from tqdm import tqdm
 from actor.hotpotqa.fewshots import REFLECTIONS
 from actor.hotpotqa.agents import truncate_scratchpad
+import ipdb
 
 class FeedbackGenerator:
     def __init__(self, task, feedback_type, eval_method, threshold, **kwargs):
-        self.base_model = AnyOpenAILLM(
-            model_name=kwargs.get("model_name", "gpt4-turbo"),
+        self.base_model = AnyLLM(
+            model_name="gpt4-turbo",
             model_kwargs={"temperature": kwargs.get("temperature", 0.0), "max_tokens": kwargs.get("max_tokens", 500)}
         )
         self.task = task
@@ -136,10 +137,10 @@ class FeedbackGenerator:
         existing_feedbacks = self.load_existing_feedback()
 
         # load rejected envs from the last trial
-        rejects = self.load_rejected_envs(self.eval_method)
+        rejects = load_rejected_envs(self.task, self.last_rejected_path, self.eval_method)
 
         # load halted envs from the last trial
-        halted = self.load_halted_envs()
+        halted = load_halted_envs(self.traj_dir)
 
         rejects = rejects + halted
         for env in tqdm(rejects):
@@ -179,21 +180,25 @@ class FeedbackGenerator:
     def load_rejected_envs(self, eval_method):
         with open(self.last_rejected_path, "r") as f:
             predicted_pos = json.load(f)
-
+        if self.task == "webshop":
+            total_num = 136
+        elif self.task == "hotpotqa":
+            total_num = 120
+        elif self.task == "alfworld":
+            total_num = 53
+        
         if eval_method == "multi_step":
             predicted_pos = predicted_pos['prod']
-        rejects = [rej['env_name'] for rej in predicted_pos if rej['true_label'] == 'Incorrect']
+        tp, fp = [], []
+        for rej in predicted_pos:
+            if rej['true_label'] == 'Correct':
+                fp.append(rej['env_name'])
+            else:
+                tp.append(rej['env_name'])
+        rejects = tp[:max(total_num-len(fp), 0)]
         return rejects
     
-    def load_halted_envs(self):
-        halted_envs = []
-        trajs = os.listdir(self.traj_dir)
-        for traj in trajs:
-            with open(os.path.join(self.traj_dir, traj), "r") as f:
-                data = json.load(f)
-            if data.get('is_halted', False):
-                halted_envs.append(traj.split(".")[0])
-        return halted_envs
+   
 
     def load_existing_feedback(self):
         return [f for f in os.listdir(self.feedback_dir) if f.endswith('.txt')]

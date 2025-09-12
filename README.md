@@ -38,7 +38,7 @@ from jdk.enums import OperatingSystem, Architecture
 jdk.install('11', operating_system=OperatingSystem.LINUX)
 import os
 jdk_version = 'jdk-11.0.19+7' #change with your version
-os.environ['JAVA_HOME'] = 'path/to/jdk'
+os.environ['JAVA_HOME'] = 'path/to/jdk (e.g. /storage/ukp/work/fang/.jdk/jdk-11.0.24+8)'
 ```
 - Configure the environment
 ```sh
