@@ -14,19 +14,13 @@ import numpy as np
 class AnyOpenAILLM:
     def __init__(self, **kwargs):
         self.model_name = kwargs.get("model_name", "gpt4-turbo")
-        if self.model_name == "gpt4-turbo":
-            deployment = "gpt4-turbo-128k"
-            os.environ["AZURE_OPENAI_API_KEY"] = "ab5b2e173543465482fbd9e18afe68c8"
-            os.environ["AZURE_OPENAI_ENDPOINT"] = (
-                "https://azure-openai-ukp-west-us.openai.azure.com/"
-            )
-        elif self.model_name == "gpt35-turbo":
-            deployment = 'gpt-35-turbo-0613-16k'
-            os.environ["AZURE_OPENAI_API_KEY"] = "5cd29c78a1184872a559f8284d13a863"
-            os.environ["AZURE_OPENAI_ENDPOINT"] = (
-                "https://azure-openai-ukp-005.openai.azure.com/"
-            )
 
+        deployment = kwargs.get("deployment", "gpt4-turbo-128k")
+        os.environ["AZURE_OPENAI_API_KEY"] = "KEY"
+        os.environ["AZURE_OPENAI_ENDPOINT"] = (
+            "endpoint"
+        )
+        
         self.model = AzureChatOpenAI(
             openai_api_version="2023-05-15", azure_deployment=deployment, **kwargs['model_kwargs'], logprobs=1
         )
@@ -120,4 +114,5 @@ class LocalLLM:
         if probs:
             return decoded[0].strip(), logits
         else:
-            return decoded[0].strip()
+            return decoded_text
+        
