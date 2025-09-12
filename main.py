@@ -334,30 +334,16 @@ def cal_metrics(eval_result_file, kwargs, evaluator, last_rejected_files):
 
     output, tp_tasks, predicted_pos = evaluator.metric(json_objects, **kwargs)
 
-    # true_positive = output["true_positive"]
-    # true_negative = output["true_negative"]
-    # false_positive = output["false_positive"]
-    # false_negative = output["false_negative"]
-    # false_negative_env = output.get('false_negative_env', [])
+
     y_true = output.get("y_true", [])
     y_pred = output.get("y_pred", [])
     # cost = output["cost"]
 
     # epsilon = 1e-17
-    # recall = true_positive / (true_positive + false_negative + epsilon)
-    # precision = true_positive / (true_positive + false_positive + epsilon)
-    # f1 = 2 * recall * precision / (recall + precision + 1e-7)
-    # neg_recall = true_negative / (true_negative + false_positive + epsilon)
-    # neg_precision = true_negative / (true_negative + false_negative + epsilon)
-    # neg_f1 = 2 * neg_recall * neg_precision / (neg_recall + neg_precision + epsilon)
-    # macro_f1 = (f1 + neg_f1) / 2
+
     same = all(x == 0 for x in y_true) or all(x == 1 for x in y_true)
     if y_pred and any(y_pred) and not same:
         precisions, recalls, thresholds = precision_recall_curve(y_true, y_pred)
-        # best_f1, best_threshold = search_best_f1(precisions, recalls, thresholds)
-        # lowest_cost, best_threshold = search_lowest_cost(precisions, recalls, thresholds, sum(y_true), len(y_true) - sum(y_true))
-
-        # best_macro_f1, best_threshold, best_positive_f1, best_negative_f1, cost_best_f1 = search_best_macro_f1(precisions, recalls, thresholds, sum(y_true), len(y_true) - sum(y_true))
 
         auc_pr = auc(recalls, precisions)
         ece = ECE(10)
@@ -597,117 +583,12 @@ if __name__ == "__main__":
                 last_halted_files = json.load(f)
             # last_halted_files = load_halted_envs(os.path.join(last_metric_dir, "halted_files.json"))
             last_rejected_files += last_halted_files
-            # if args.eval_method == "multi_step":
-            #     last_rejected = last_rejected["prod"]
-            # for f in last_rejected:
-            #     if f["true_label"] == "Incorrect":
-            #         last_rejected_files.append((f["env_name"]))
+
         else:
             last_rejected_files = os.listdir(actor_flies_dir)
             last_rejected_files = [f.split(".json")[0] for f in last_rejected_files]
             last_rejected_files = sorted(last_rejected_files)
-        # last_rejected_files = [
-        #     "289",
-        #     "93",
-        #     "153",
-        #     "243",
-        #     "220",
-        #     "260",
-        #     "194",
-        #     "196",
-        #     "157",
-        #     "204",
-        #     "263",
-        #     "133",
-        #     "226",
-        #     "163",
-        #     "229",
-        #     "274",
-        #     "170",
-        #     "123",
-        #     "143",
-        #     "28",
-        #     "201",
-        #     "60",
-        #     "246",
-        #     "291",
-        #     "209",
-        #     "270",
-        #     "202",
-        #     "85",
-        #     "284",
-        #     "181",
-        #     "219",
-        #     "200",
-        #     "293",
-        #     "253",
-        #     "182",
-        #     "222",
-        #     "70",
-        #     "119",
-        #     "189",
-        #     "159",
-        #     "256",
-        #     "130",
-        #     "72",
-        #     "279",
-        #     "92",
-        #     "41",
-        #     "88",
-        #     "208",
-        #     "83",
-        #     "282",
-        #     "228",
-        #     "277",
-        #     "179",
-        #     "192",
-        #     "13",
-        #     "107",
-        #     "106",
-        #     "98",
-        #     "138",
-        #     "242",
-        #     "99",
-        #     "184",
-        #     "1",
-        #     "156",
-        #     "198",
-        #     "49",
-        #     "54",
-        #     "271",
-        #     "221",
-        #     "127",
-        #     "141",
-        #     "215",
-        #     "231",
-        #     "58",
-        #     "175",
-        #     "295",
-        #     "111",
-        #     "102",
-        #     "269",
-        #     "69",
-        #     "203",
-        #     "26",
-        #     "169",
-        #     "38",
-        #     "158",
-        #     "109",
-        #     "78",
-        #     "23",
-        #     "258",
-        #     "35",
-        #     "236",
-        #     "77",
-        #     "95",
-        #     "64",
-        #     "183",
-        #     "150",
-        #     "188",
-        #     "19",
-        #     "116",
-        #     "214",
-        # ]
+
         evaluator = evaluators[args.eval_method](args.task, **kwargs)
         logging.info(f"-----Running evaluation for {args.task}------")
         # ipdb.set_trace()
