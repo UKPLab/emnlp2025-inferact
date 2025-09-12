@@ -32,7 +32,8 @@ def get_trajectory_hotpotqa(message):
             assert msg["data"]["content"].startswith("Question: ")
             original_task = msg["data"]["content"].replace("Question: ", "").strip()
         elif msg["type"] == "ai":
-            messages.append(msg["data"]["content"])
+            messages.append("\n".join([line for line in msg["data"]["content"].split("\n")]))
+            # messages.append(msg["data"]["content"])
     return [messages], original_task
 
 
@@ -52,8 +53,39 @@ def get_trajectory_alfworld(message):
 
     partial_trajectories.append(complete_trajectory)
     return partial_trajectories, original_task
-        
-def get_action_chain_alfworld(message):
+
+
+def get_action_chain_webshop(message, mask_search=True, keep_thought=False):
+    message = message[10:]
+    action_chain = []
+    for ix, msg in enumerate(message):
+        if msg["type"] == "ai":
+            if keep_thought:
+                action = msg["data"]["content"]
+            else:
+                action = "Action:\n" + msg["data"]["content"].split("Action:")[1].strip()
+            # if "click[Buy Now]" in action and keep_thought:
+            #     action = msg["data"]["content"]
+            if "search" in action and mask_search:
+                action = "search"
+            action_chain.append(action)
+            # get observation
+            obs = message[ix + 1]["data"]["content"].strip()
+            observations = obs.split('[SEP]')
+            # remove the instruction
+            for ix in range(len(observations)):
+                if "Instruction" in observations[ix]:
+                    cleaned_obs = "[SEP]".join(observations[ix+2:])
+                    break
+            action_chain.append("Observation:\n" + cleaned_obs)
+
+    if "click[Buy Now]" in action_chain[-2]:
+        action_chain = action_chain[:-1]
+    # action_chain.append("Action:\n" + "cllick[Buy Now]")
+    original_task = message[0]["data"]["content"].split("[SEP]")[2].strip()
+    return [action_chain], original_task
+
+def get_action_chain_alfworld(message, critical_actions):
     original_task = message[0]["data"]["content"].split("\n")[-1]
     assert original_task.startswith("Your task is to:")
     original_task = original_task.replace("Your task is to:", "").strip()
@@ -79,26 +111,46 @@ def get_action_chain_alfworld(message):
 
     return partial_action_chains, original_task
 
-def get_action_chain_webshop(message, mask_search=True, keep_thought=False):
-    message = message[10:]
-    action_chain = []
-    for ix, msg in enumerate(message):
-        if msg["type"] == "ai":
-            action = msg["data"]["content"].split("Action:")[1].strip()
-            if "click[Buy Now]" in action and keep_thought:
-                action = msg["data"]["content"]
-            if "search" in action and mask_search:
-                action = "search"
-            action_chain.append("Action:\n" + action)
-            obs = message[ix + 1]["data"]["content"].strip()
-            obs = "[SEP]".join(obs.split("[SEP]")[2:])
-            action_chain.append("Observation:\n" + obs)
+def get_action_chain_rjudge(message):
+    critical_actions = ["delete", "rm -rf", "kill", "sudo", "shutdown", "terminate", "transfer", "withdraw"]
+    action_chain, partial_action_chains = [], []
+    # import ipdb; ipdb.set_trace()
+    for msg in message:
+        try:
+            if msg['role'] == 'agent' and msg['action']:
+                action_chain.append("Action:\n" + msg['action'])
+                for action in critical_actions:
+                    if action in msg['action'].lower():
+                        partial_action_chains.append(deepcopy(action_chain))
+                        break
+            elif msg['role'] == 'environment' and msg['content']:
+                action_chain.append("Observation:\n" + msg['content'])
+        except:
+            ipdb.set_trace()
+    if action_chain not in partial_action_chains:
+        partial_action_chains.append(action_chain)
+    # ipdb.set_trace()
+    return partial_action_chains, message[0]['content']
 
-    if "click[Buy Now]" in action_chain[-2]:
-        action_chain = action_chain[:-1]
-    # action_chain.append("Action:\n" + "cllick[Buy Now]")
-    original_task = message[0]["data"]["content"].split("[SEP]")[2].strip()
-    return [action_chain], original_task
+def get_trajectory_rjudge(message):
+    trajectory_chain, partial_trajectories = [], []
+    critical_actions = ["delete", "rm -rf", "kill", "sudo", "shutdown", "terminate", "transfer", "withdraw"]
+    for msg in message:
+        if msg['role'] == 'agent' and msg['action']:
+            if not msg['thought']: msg['thought'] = ''
+            trajectory_chain.append("Thought:\n" + msg['thought'] + "\n" + "Action:\n" + msg['action'])
+            for action in critical_actions:
+                if action in msg['action'].lower():
+                    partial_trajectories.append(deepcopy(trajectory_chain))
+                    break
+            # trajectory_chain.append("Action:\n" + msg['action'])
+        elif msg['role'] == 'environment' and msg['content']:
+            trajectory_chain.append(msg['content'])
+    if trajectory_chain not in partial_trajectories:
+        partial_trajectories.append(trajectory_chain)
+    return partial_trajectories, message[0]['content']
+
+
 
 def get_action_chain_hotpotqa(message, tokenizer=gpt2_enc, n_tokens = 2048):
 
@@ -124,14 +176,54 @@ def get_action_chain_hotpotqa(message, tokenizer=gpt2_enc, n_tokens = 2048):
         )
     return [actions_obs], message[0]["data"]["content"].replace("Question: ", "").strip()
 
+
+def load_rejected_envs(task, last_rejected_path, eval_method):
+        with open(last_rejected_path, "r") as f:
+            predicted_pos = json.load(f)
+        if task == "webshop":
+            total_num = 136
+        elif task == "hotpotqa":
+            total_num = 120
+        elif task == "alfworld":
+            total_num = 53
+        
+        if eval_method == "multi_step":
+            predicted_pos = predicted_pos['prod']
+        tp, fp = [], []
+        for rej in predicted_pos:
+            if rej['true_label'] == 'Correct':
+                fp.append(rej['env_name'])
+            else:
+                tp.append(rej['env_name'])
+        rejects = tp[:max(total_num-len(fp), 0)]
+        return rejects
+    
+def load_halted_envs(traj_dir):
+    halted_envs = []
+    trajs = os.listdir(traj_dir)
+    for traj in trajs:
+        with open(os.path.join(traj_dir, traj), "r") as f:
+            data = json.load(f)
+        if data.get('is_halted', False):
+            halted_envs.append(traj.split(".")[0])
+    return halted_envs
+    
 def convert_json_objs(file):
     json_objects = []
     buffer = ""
+    # with open("/storage/ukp/work/fang/InferAct/outputs/actor-traj/alfworld/halted_files.json", "r") as f:
+    #     halted_files = json.load(f)
+        
     with open(file, "r") as f:
         for line in f:
             buffer += line
             try:
                 json_object = json.loads(buffer)
+                # if json_object['env_name'] in halted_files:
+                #     buffer = (
+                #     ""  # Clear the buffer once we've successfully parsed a JSON object
+                #     )
+                #     continue
                 json_objects.append(json_object)
                 buffer = (
                     ""  # Clear the buffer once we've successfully parsed a JSON object
@@ -140,6 +232,7 @@ def convert_json_objs(file):
                 # If we get a JSONDecodeError, it means that the buffer doesn't contain a complete JSON object
                 # So we just continue reading lines into the buffer
                 continue
+
     return json_objects
 
 def get_env_name_for_critic(critic_file, actor_dir, task, method):
@@ -214,6 +307,30 @@ def get_env_name_for_critic(critic_file, actor_dir, task, method):
             f.write(json.dumps(entry, indent=4) + '\n')
             env_names_list.append(int(entry['env_name']))
                 
+
+def get_inferred_tasks(path):
+    env2inferred_tasks = {}
+    objects = convert_json_objs(os.path.join(path))
+    for entry in objects:
+        env_name = entry['env_name']
+        if env_name in env2inferred_tasks:
+            print(f"env_name {env_name} already exists")
+        generated_tasks = []
+        for item in entry['real-time eval']:
+            tasks_string = entry['real-time eval'][item]['tasks_string']
+            answer = entry['real-time eval'][item]['answer']
+            if 'probabilities' in entry['real-time eval'][item]:
+                prob = entry['real-time eval'][item]['probabilities']
+            else:
+                prob = None
+            # if "task_string_reverse" in entry['real-time eval'][item]:
+            #     task_string_reverse = entry['real-time eval'][item]['task_string_reverse']
+            #     generated_tasks.append((tasks_string, task_string_reverse))
+            generated_tasks.append((tasks_string, answer, prob))
+            
+        env2inferred_tasks[env_name] = generated_tasks
+    return env2inferred_tasks
+
 def extract_price(messages):
     # Identify the clicked product's ID
     messages = messages[::-1]
@@ -225,7 +342,7 @@ def extract_price(messages):
     return None
 
 def get_risk_level(task, chains):
-    if task == "WebShop":
+    if task == "webshop":
         price = extract_price(chains[0])
         if price:
             price = float(price[0])
@@ -251,3 +368,24 @@ def get_risk_level(task, chains):
             else:
                 object_risk_level = "low_risk"
     return object_risk_level
+
+
+def remove_duplicate_record(file_path):
+    objects = convert_json_objs(file_path)
+    env_names = []
+    deduplicated_objects = []
+    for obj in objects:
+        if obj['env_name'] not in env_names:
+            env_names.append(obj['env_name'])
+            deduplicated_objects.append(obj)
+        else:
+            print(f"env_name {obj['env_name']} already exists")
+            
+    with open(file_path, "w") as f:
+        for obj in deduplicated_objects:
+            f.write(json.dumps(obj, indent=4) + '\n')
+
+
+if __name__ == "__main__":
+    remove_duplicate_record("/storage/ukp/work/fang/InferAct/outputs/evaluation_results/llama-3-70B/alfworld/multi_step/inferact/retrial_0/eval_results/init.txt")
+
